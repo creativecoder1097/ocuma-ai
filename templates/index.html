@@ -1,0 +1,2005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OcuLuma AI — Retinal Disease Risk Assessment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+:root {
+  --void: #020408;
+  --deep: #050c14;
+  --surface: #0a1628;
+  --panel: rgba(10,22,45,0.85);
+  --border: rgba(0,180,255,0.15);
+  --border-bright: rgba(0,180,255,0.5);
+  --cyan: #00b4ff;
+  --cyan-dim: rgba(0,180,255,0.6);
+  --teal: #00e5cc;
+  --red: #ff3b5c;
+  --green: #00e896;
+  --amber: #ffb020;
+  --text-primary: #e8f4ff;
+  --text-secondary: #7ba8cc;
+  --text-dim: #3d6080;
+  --font-ui: 'Rajdhani', sans-serif;
+  --font-mono: 'Share Tech Mono', monospace;
+  --font-display: 'Orbitron', sans-serif;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--void);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Scanline overlay ── */
+body::after {
+  content:'';
+  position:fixed;
+  inset:0;
+  z-index:1;
+  pointer-events:none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0,0,0,0.06) 3px,
+    rgba(0,0,0,0.06) 4px
+  );
+}
+
+/* ── Canvas ── */
+#bg-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.9;
+}
+
+/* ── Layout ── */
+.app-wrapper {
+  position: relative;
+  z-index: 10;
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+/* ── Header ── */
+header {
+  padding: 16px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: rgba(2,4,8,0.75);
+  backdrop-filter: blur(24px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+/* Animated header top border */
+header::before {
+  content:'';
+  position:absolute;
+  top:0; left:0; right:0;
+  height:1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--cyan) 30%,
+    var(--teal) 60%,
+    transparent 100%
+  );
+  animation: header-shimmer 4s ease-in-out infinite;
+}
+@keyframes header-shimmer {
+  0%,100%{opacity:0.4} 50%{opacity:1}
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.logo-icon {
+  width: 44px;
+  height: 44px;
+  position: relative;
+}
+
+.logo-icon svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 10px var(--cyan));
+  animation: pulse-icon 3s ease-in-out infinite;
+}
+
+@keyframes pulse-icon {
+  0%,100%{ filter: drop-shadow(0 0 8px var(--cyan)); }
+  50%    { filter: drop-shadow(0 0 18px var(--cyan)) drop-shadow(0 0 36px var(--teal)); }
+}
+
+.logo-text {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.logo-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--cyan);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.status-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: rgba(0,0,0,0.35);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.status-dot.online  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 2s infinite; }
+.status-dot.offline { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+/* ── Main ── */
+main {
+  display: grid;
+  grid-template-columns: 1fr 490px;
+  gap: 0;
+  min-height: calc(100vh - 70px);
+}
+
+/* ── Hero Panel ── */
+.hero-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 40px;
+  position: relative;
+  border-right: 1px solid var(--border);
+}
+
+/* Corner HUD decorations on hero panel */
+.hero-panel::before,
+.hero-panel::after {
+  content:'';
+  position:absolute;
+  width:60px; height:60px;
+  pointer-events:none;
+}
+.hero-panel::before {
+  top:20px; left:20px;
+  border-top:1px solid rgba(0,180,255,0.3);
+  border-left:1px solid rgba(0,180,255,0.3);
+}
+.hero-panel::after {
+  bottom:20px; right:20px;
+  border-bottom:1px solid rgba(0,180,255,0.3);
+  border-right:1px solid rgba(0,180,255,0.3);
+}
+
+/* ── 3D Eye Container ── */
+.eye-3d-container {
+  width: 340px;
+  height: 340px;
+  position: relative;
+  margin-bottom: 44px;
+}
+
+#eye-canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1px solid var(--border-bright);
+  box-shadow:
+    0 0 60px rgba(0,180,255,0.18),
+    0 0 120px rgba(0,180,255,0.08),
+    inset 0 0 60px rgba(0,0,0,0.6);
+}
+
+/* Outer data ring */
+.eye-rings {
+  position: absolute;
+  inset: -24px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,180,255,0.12);
+  animation: rotate-ring 14s linear infinite;
+}
+
+.eye-rings::before {
+  content:'';
+  position:absolute;
+  inset: 12px;
+  border-radius: 50%;
+  border: 1px dashed rgba(0,229,204,0.1);
+  animation: rotate-ring 9s linear infinite reverse;
+}
+
+.eye-rings::after {
+  content:'';
+  position:absolute;
+  inset: -16px;
+  border-radius: 50%;
+  border: 1px dotted rgba(0,180,255,0.06);
+  animation: rotate-ring 22s linear infinite;
+}
+
+@keyframes rotate-ring {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Tick marks on outer ring */
+.ring-ticks {
+  position: absolute;
+  inset: -24px;
+  border-radius: 50%;
+  animation: rotate-ring 14s linear infinite;
+}
+
+.ring-tick {
+  position: absolute;
+  width: 2px;
+  height: 6px;
+  background: var(--cyan);
+  opacity: 0.4;
+  left: 50%;
+  transform-origin: 50% 192px;
+}
+
+.scan-line {
+  position: absolute;
+  left: -24px; right: -24px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--teal) 20%, var(--cyan) 50%, var(--teal) 80%, transparent);
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  box-shadow: 0 0 12px var(--cyan), 0 0 24px rgba(0,180,255,0.4);
+}
+
+.scan-line.scanning {
+  animation: scan-sweep 1.5s ease-in-out infinite;
+}
+
+@keyframes scan-sweep {
+  0%  { top: 0%;   opacity: 0; }
+  8%  { opacity: 1; }
+  92% { opacity: 1; }
+  100%{ top: 100%; opacity: 0; }
+}
+
+/* HUD data readouts around the eye */
+.eye-hud {
+  position: absolute;
+  inset: -60px;
+  pointer-events: none;
+}
+
+.hud-point {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: rgba(0,180,255,0.5);
+  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hud-point::before {
+  content:'';
+  width:4px; height:4px;
+  border-radius:50%;
+  background: var(--cyan);
+  opacity:0.6;
+  box-shadow: 0 0 4px var(--cyan);
+}
+
+.hud-n  { top: 4px;  left: 50%; transform:translateX(-50%); }
+.hud-ne { top: 18%;  right: 4%; }
+.hud-se { bottom: 18%; right: 4%; }
+.hud-s  { bottom: 4px; left: 50%; transform:translateX(-50%); }
+.hud-nw { top: 18%;  left: 4%; }
+.hud-sw { bottom: 18%; left: 4%; }
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 6px;
+  color: var(--teal);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.hero-headline {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 900;
+  color: var(--text-primary);
+  text-align: center;
+  line-height: 1.15;
+  margin-bottom: 16px;
+  text-shadow: 0 0 50px rgba(0,180,255,0.35);
+}
+
+.hero-desc {
+  font-size: 15px;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.75;
+  max-width: 420px;
+  margin-bottom: 36px;
+}
+
+.metrics-row {
+  display: flex;
+  gap: 16px;
+}
+
+.metric-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 20px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(0,180,255,0.03);
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.metric-box:hover {
+  border-color: rgba(0,180,255,0.35);
+  box-shadow: 0 0 20px rgba(0,180,255,0.08);
+}
+
+.metric-box::before {
+  content:'';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  animation: metric-glow 3s ease-in-out infinite;
+}
+
+@keyframes metric-glow {
+  0%,100%{opacity:0.3} 50%{opacity:1}
+}
+
+.metric-val {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--cyan);
+  text-shadow: 0 0 14px rgba(0,180,255,0.5);
+}
+
+.metric-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ── Control Panel ── */
+.control-panel {
+  display: flex;
+  flex-direction: column;
+  background: rgba(4,10,20,0.7);
+  backdrop-filter: blur(16px);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.panel-section {
+  padding: 26px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--teal);
+  text-transform: uppercase;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-label::after {
+  content:'';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(0,229,204,0.4), transparent);
+}
+
+.field-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.field-group.single { grid-template-columns: 1fr; }
+
+label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 6px;
+}
+
+input[type="text"], select {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.25s, box-shadow 0.25s, background 0.25s;
+}
+
+input[type="text"]:focus, select:focus {
+  border-color: var(--cyan-dim);
+  box-shadow: 0 0 16px rgba(0,180,255,0.14), inset 0 0 10px rgba(0,180,255,0.04);
+  background: rgba(0,20,40,0.5);
+}
+
+select option { background: var(--deep); }
+
+/* ── Upload Zone ── */
+.upload-zone {
+  width: 100%;
+  min-height: 165px;
+  border: 1.5px dashed rgba(0,180,255,0.25);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.3s;
+  position: relative;
+  overflow: hidden;
+  background: rgba(0,180,255,0.02);
+}
+
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color: var(--cyan);
+  background: rgba(0,180,255,0.055);
+  box-shadow: 0 0 24px rgba(0,180,255,0.08);
+}
+
+.upload-zone.has-image {
+  border-style: solid;
+  border-color: var(--border-bright);
+}
+
+.upload-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--cyan-dim);
+  transition: transform 0.3s;
+}
+.upload-zone:hover .upload-icon { transform: scale(1.1); }
+
+.upload-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.9;
+}
+
+.upload-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+#file-input { display: none; }
+
+.preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  position: absolute;
+  inset: 0;
+  opacity: 0.85;
+}
+
+.preview-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(0,180,255,0.15);
+  border: 1px solid var(--cyan);
+  padding: 3px 8px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--cyan);
+  letter-spacing: 1px;
+}
+
+/* ── Buttons ── */
+.btn-primary {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(0,180,255,0.14), rgba(0,229,204,0.07));
+  border: 1px solid var(--cyan);
+  border-radius: 3px;
+  color: var(--cyan);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary::before {
+  content:'';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(0,180,255,0.22), rgba(0,229,204,0.16));
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.btn-primary:hover::before { opacity: 1; }
+.btn-primary:hover { box-shadow: 0 0 30px rgba(0,180,255,0.28); transform: translateY(-1px); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.btn-primary.running {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.btn-secondary {
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.25s;
+  margin-top: 8px;
+}
+
+.btn-secondary:hover {
+  border-color: var(--cyan-dim);
+  color: var(--text-primary);
+  background: rgba(0,180,255,0.04);
+}
+
+/* ── Processing overlay ── */
+.processing-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(2,4,8,0.88);
+  backdrop-filter: blur(10px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+}
+
+.processing-overlay.active { display: flex; }
+
+.proc-eye {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  border: 2px solid var(--cyan);
+  box-shadow: 0 0 40px var(--cyan), 0 0 80px rgba(0,180,255,0.2), inset 0 0 40px rgba(0,180,255,0.12);
+  position: relative;
+  animation: proc-pulse 1.5s ease-in-out infinite;
+}
+
+.proc-eye::before {
+  content:'';
+  position: absolute;
+  left:-18px; right:-18px; top:-18px; bottom:-18px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,180,255,0.25);
+  animation: proc-ring 2s linear infinite;
+}
+
+.proc-eye::after {
+  content:'';
+  position: absolute;
+  left:-36px; right:-36px; top:-36px; bottom:-36px;
+  border-radius: 50%;
+  border: 1px dashed rgba(0,229,204,0.15);
+  animation: proc-ring 3s linear infinite reverse;
+}
+
+@keyframes proc-pulse {
+  0%,100%{box-shadow:0 0 40px var(--cyan),inset 0 0 30px rgba(0,180,255,0.1)}
+  50%{box-shadow:0 0 70px var(--cyan),0 0 120px rgba(0,180,255,0.35),inset 0 0 50px rgba(0,180,255,0.2)}
+}
+
+@keyframes proc-ring {
+  from{transform:rotate(0deg)} to{transform:rotate(360deg)}
+}
+
+.proc-scan {
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--teal), var(--cyan), var(--teal), transparent);
+  animation: proc-scan 1.2s ease-in-out infinite;
+}
+
+@keyframes proc-scan {
+  0%  { top: 0%;   opacity: 0; }
+  8%  { opacity: 1; }
+  92% { opacity: 1; }
+  100%{ top: 100%; opacity: 0; }
+}
+
+.proc-text {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 4px;
+  color: var(--cyan);
+  text-shadow: 0 0 20px rgba(0,180,255,0.6);
+}
+
+.proc-step {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+}
+
+.proc-progress {
+  width: 300px;
+  height: 2px;
+  background: rgba(0,180,255,0.1);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.proc-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--teal));
+  border-radius: 1px;
+  animation: progress-fill 2.5s ease-in-out infinite;
+}
+
+@keyframes progress-fill {
+  0%  { width: 0%; }
+  50% { width: 70%; }
+  100%{ width: 100%; }
+}
+
+/* ── Results Panel ── */
+#results-container {
+  display: none;
+  flex-direction: column;
+}
+
+.result-header {
+  padding: 24px 28px 0;
+}
+
+.result-verdict {
+  border-radius: 6px;
+  padding: 20px;
+  margin: 20px 28px 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.result-verdict::before {
+  content:'';
+  position: absolute;
+  inset: 0;
+  opacity: 0.04;
+  background: radial-gradient(ellipse at top, currentColor, transparent);
+}
+
+.verdict-label {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+
+.verdict-confidence {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  opacity: 0.7;
+  letter-spacing: 2px;
+}
+
+.prob-bar {
+  margin: 14px 0 6px;
+  height: 8px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.prob-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 1s cubic-bezier(0.4,0,0.2,1);
+  position: relative;
+}
+
+.prob-bar-fill::after {
+  content:'';
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 20px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4));
+}
+
+.prob-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.clinical-note {
+  padding: 14px 18px;
+  background: rgba(0,0,0,0.35);
+  border-radius: 4px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+
+.clinical-note-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+/* ── Image Grid ── */
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 20px 28px;
+}
+
+.img-cell {
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.3);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.img-cell:hover {
+  border-color: rgba(0,180,255,0.35);
+  box-shadow: 0 0 18px rgba(0,180,255,0.1);
+}
+
+.img-cell img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s;
+}
+
+.img-cell:hover img { transform: scale(1.04); }
+
+.img-label {
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-align: center;
+  text-transform: uppercase;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Disease Bars ── */
+.disease-list {
+  padding: 0 0 4px;
+}
+
+.disease-item {
+  margin-bottom: 12px;
+}
+
+.disease-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.disease-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+}
+
+.disease-prob {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--cyan);
+}
+
+.disease-bar {
+  height: 5px;
+  background: rgba(0,180,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.disease-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--teal));
+  border-radius: 3px;
+  transition: width 1.2s cubic-bezier(0.4,0,0.2,1);
+  position: relative;
+}
+
+.disease-bar-fill::after {
+  content:'';
+  position:absolute;
+  right:0; top:0; bottom:0;
+  width:10px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5));
+}
+
+/* ── Meta badges ── */
+.meta-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 28px 24px;
+}
+
+.badge {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  background: rgba(0,0,0,0.2);
+}
+
+/* ── No model warning ── */
+.no-model-banner {
+  margin: 20px;
+  padding: 14px 18px;
+  background: rgba(255,176,32,0.05);
+  border: 1px solid rgba(255,176,32,0.3);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--amber);
+  line-height: 1.85;
+  letter-spacing: 0.5px;
+}
+
+/* ── Corner decorations ── */
+.corner-deco {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+}
+
+.corner-deco.tl { top:-1px; left:-1px; border-top:2px solid var(--cyan); border-left:2px solid var(--cyan); }
+.corner-deco.tr { top:-1px; right:-1px; border-top:2px solid var(--cyan); border-right:2px solid var(--cyan); }
+.corner-deco.bl { bottom:-1px; left:-1px; border-bottom:2px solid var(--cyan); border-left:2px solid var(--cyan); }
+.corner-deco.br { bottom:-1px; right:-1px; border-bottom:2px solid var(--cyan); border-right:2px solid var(--cyan); }
+
+/* ── Footer ── */
+footer {
+  padding: 14px 40px;
+  border-top: 1px solid var(--border);
+  background: rgba(2,4,8,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+
+.footer-right { color: var(--text-dim); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--void); }
+::-webkit-scrollbar-thumb { background: rgba(0,180,255,0.2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,180,255,0.4); }
+
+/* ── Animations ── */
+@keyframes fadeIn {
+  from { opacity:0; transform: translateY(12px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+
+.fade-in { animation: fadeIn 0.45s ease forwards; }
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+  .hero-panel { padding: 40px 24px; border-right: none; border-bottom: 1px solid var(--border); }
+  .eye-3d-container { width: 260px; height: 260px; }
+}
+
+img {
+  image-rendering: auto;
+  object-fit: contain;
+  background: #080c14;
+}
+</style>
+</head>
+<body>
+
+<!-- Background Three.js canvas -->
+<canvas id="bg-canvas"></canvas>
+
+<!-- Processing overlay -->
+<div class="processing-overlay" id="proc-overlay">
+  <div class="proc-eye">
+    <div class="proc-scan"></div>
+  </div>
+  <div class="proc-text">ANALYZING FUNDUS</div>
+  <div class="proc-step" id="proc-step-text">INITIALIZING NEURAL NETWORK...</div>
+  <div class="proc-progress"><div class="proc-progress-fill"></div></div>
+</div>
+
+<div class="app-wrapper">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="21" cy="21" rx="20" ry="13" stroke="#00b4ff" stroke-width="1.5"/>
+          <circle cx="21" cy="21" r="7" stroke="#00e5cc" stroke-width="1.5"/>
+          <circle cx="21" cy="21" r="3" fill="#00b4ff"/>
+          <line x1="1" y1="21" x2="10" y2="21" stroke="#00b4ff" stroke-width="1.5"/>
+          <line x1="32" y1="21" x2="41" y2="21" stroke="#00b4ff" stroke-width="1.5"/>
+          <circle cx="18" cy="19" r="1.5" fill="white" opacity="0.6"/>
+          <circle cx="21" cy="21" r="10" stroke="#00b4ff" stroke-width="0.5" opacity="0.3" stroke-dasharray="2 4"/>
+        </svg>
+      </div>
+      <div>
+        <div class="logo-text">OCULUMA AI</div>
+        <div class="logo-sub">Retinal Disease Risk Assessment</div>
+      </div>
+    </div>
+    <div class="header-status">
+      <div class="status-chip">
+        <div class="status-dot" id="model-status-dot"></div>
+        <span id="model-status-text">CHECKING MODEL...</span>
+      </div>
+      <div class="status-chip">
+        <span id="sys-time">--:--:--</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero / 3D Eye Panel -->
+    <div class="hero-panel">
+      <div class="eye-3d-container">
+        <canvas id="eye-canvas"></canvas>
+
+        <!-- Animated orbit rings -->
+        <div class="eye-rings"></div>
+        <div class="ring-ticks" id="ring-ticks"></div>
+        <div class="scan-line" id="hero-scan"></div>
+
+        <!-- HUD readout points -->
+        <div class="eye-hud">
+          <div class="hud-point hud-n">MACULA</div>
+          <div class="hud-point hud-ne">DISC</div>
+          <div class="hud-point hud-se">FOVEA</div>
+          <div class="hud-point hud-s" id="hud-status">IDLE</div>
+          <div class="hud-point hud-nw">VESSEL</div>
+          <div class="hud-point hud-sw">RETINA</div>
+        </div>
+      </div>
+
+      <div class="hero-title">OcuLuma AI</div>
+      <h1 class="hero-headline">Retinal Disease<br>Risk Assessment</h1>
+      <p class="hero-desc">
+        Deep learning analysis of retinal fundus images using
+        EfficientNetB3, CLAHE preprocessing, CBAM attention gates, and Grad-CAM explainability.
+      </p>
+
+      <div class="metrics-row">
+        <div class="metric-box">
+          <div class="metric-val" id="metric-auc">—</div>
+          <div class="metric-label">Test AUC</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val">5×</div>
+          <div class="metric-label">TTA Passes</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val">B3</div>
+          <div class="metric-label">EfficientNet</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val">CBAM</div>
+          <div class="metric-label">Attention</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="control-panel" id="control-panel">
+
+      <!-- Patient Info -->
+      <div class="panel-section">
+        <div class="section-label">Patient Data</div>
+        <div class="field-group">
+          <div>
+            <label>Patient ID</label>
+            <input type="text" id="patient-id" value="PT-001">
+          </div>
+          <div>
+            <label>Clinician</label>
+            <input type="text" id="clinician" value="Dr. Smith">
+          </div>
+        </div>
+        <div class="field-group">
+          <div>
+            <label>Eye Examined</label>
+            <select id="eye-select">
+              <option>Right Eye (OD)</option>
+              <option>Left Eye (OS)</option>
+              <option>Unknown</option>
+            </select>
+          </div>
+          <div>
+            <label>Imaging Device</label>
+            <select id="device-select">
+              <option>Fundus Camera</option>
+              <option>Wide-Field</option>
+              <option>OCT-A</option>
+              <option>Other</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload -->
+      <div class="panel-section">
+        <div class="section-label">Fundus Image Upload</div>
+
+        <div class="upload-zone" id="upload-zone">
+          <div class="corner-deco tl"></div>
+          <div class="corner-deco tr"></div>
+          <div class="corner-deco bl"></div>
+          <div class="corner-deco br"></div>
+          <svg class="upload-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="24" cy="24" r="16" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="24" cy="24" r="7" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="24" cy="24" r="2.5" fill="currentColor"/>
+            <line x1="8" y1="24" x2="16" y2="24" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="32" y1="24" x2="40" y2="24" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="24" y1="8" x2="24" y2="16" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="24" y1="32" x2="24" y2="40" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          <div class="upload-text">
+            Drop fundus image here<br>or click to browse
+          </div>
+          <div class="upload-hint">PNG · JPG · JPEG — Max 16MB</div>
+          <img class="preview-img" id="preview-img" src="" alt="" style="display:none">
+          <div class="preview-badge" id="preview-badge" style="display:none">IMAGE LOADED</div>
+          <input type="file" id="file-input" accept=".png,.jpg,.jpeg">
+        </div>
+
+        <button class="btn-primary" id="run-btn" style="margin-top:16px" onclick="runScreening()">
+          ▶ RUN SCREENING
+        </button>
+        <button class="btn-secondary" onclick="resetAll()">CLEAR / RESET</button>
+      </div>
+
+      <!-- No model banner -->
+      <div class="no-model-banner" id="no-model-banner" style="display:none">
+        ⚠ MODEL NOT LOADED<br>
+        Place retinal_model_v2.keras, model_meta.json, and<br>
+        disease_map.json in the <strong>./model/</strong> directory,<br>
+        then restart the Flask server.
+      </div>
+
+      <!-- Results -->
+      <div id="results-container">
+
+        <div class="result-header">
+          <div class="section-label">Screening Result</div>
+        </div>
+
+        <div class="result-verdict" id="verdict-box">
+          <div class="verdict-label" id="verdict-label">—</div>
+          <div class="verdict-confidence" id="verdict-conf">CONFIDENCE: —</div>
+          <div class="prob-bar">
+            <div class="prob-bar-fill" id="prob-fill" style="width:0%"></div>
+          </div>
+          <div class="prob-labels">
+            <span>NO RISK</span>
+            <span>DISEASE RISK</span>
+          </div>
+          <div class="clinical-note" id="clinical-note">
+            <div class="clinical-note-title" id="clinical-title"></div>
+            <div id="clinical-text"></div>
+          </div>
+        </div>
+
+        <!-- Grad-CAM Images -->
+        <div class="image-grid">
+          <div class="img-cell">
+            <img id="img-original" src="" alt="Original">
+            <div class="img-label">ORIGINAL</div>
+          </div>
+          <div class="img-cell">
+            <img id="img-heatmap" src="" alt="Heatmap">
+            <div class="img-label">ACTIVATION MAP</div>
+          </div>
+          <div class="img-cell">
+            <img id="img-overlay" src="" alt="Overlay">
+            <div class="img-label">GRAD-CAM OVERLAY</div>
+          </div>
+        </div>
+
+        <!-- Disease predictions -->
+        <div class="panel-section" style="border-top:1px solid var(--border)">
+          <div class="section-label">Disease Indicators</div>
+          <div class="disease-list" id="disease-list"></div>
+        </div>
+
+        <!-- Meta badges -->
+        <div class="meta-badges" id="meta-badges"></div>
+
+        <!-- Export button -->
+        <div style="padding:0 28px 28px">
+          <button class="btn-secondary" onclick="exportReport()">↓ EXPORT SESSION REPORT</button>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+  <footer>
+    <span>OCULUMA AI © 2025 — <span style="color:rgba(0,180,255,0.4)">Deep Learning Retinal Analysis</span></span>
+    <span class="footer-right" id="session-count">SESSION SCREENINGS: 0</span>
+  </footer>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  Tick marks on orbit ring
+// ═══════════════════════════════════════════════════════
+(function() {
+  const container = document.getElementById('ring-ticks');
+  for (let i = 0; i < 24; i++) {
+    const tick = document.createElement('div');
+    tick.className = 'ring-tick';
+    tick.style.transform = `rotate(${i * 15}deg) translateX(-50%)`;
+    tick.style.opacity = (i % 6 === 0) ? '0.7' : '0.25';
+    tick.style.height = (i % 6 === 0) ? '8px' : '5px';
+    container.appendChild(tick);
+  }
+})();
+
+// ═══════════════════════════════════════════════════════
+//  Three.js Background — Advanced Neural Network
+// ═══════════════════════════════════════════════════════
+(function() {
+  const canvas   = document.getElementById('bg-canvas');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x020408, 1);
+
+  const scene  = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.z = 80;
+
+  // ── Layer 1: Outer sparse stars ──
+  const starGeo  = new THREE.BufferGeometry();
+  const starPos  = new Float32Array(600 * 3);
+  for (let i = 0; i < 600; i++) {
+    starPos[i*3]   = (Math.random() - 0.5) * 300;
+    starPos[i*3+1] = (Math.random() - 0.5) * 200;
+    starPos[i*3+2] = (Math.random() - 0.5) * 200 - 50;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({
+    color: 0x3a7090, size: 0.35, transparent: true, opacity: 0.5,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  })));
+
+  // ── Layer 2: Neural network nodes (cyan) ──
+  const nodeCount = 220;
+  const nodeGeo   = new THREE.BufferGeometry();
+  const nodePos   = new Float32Array(nodeCount * 3);
+  const nodeColor = new Float32Array(nodeCount * 3);
+
+  for (let i = 0; i < nodeCount; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi   = Math.acos(2 * Math.random() - 1);
+    const r     = 25 + Math.random() * 55;
+    nodePos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    nodePos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    nodePos[i*3+2] = r * Math.cos(phi);
+    // Mix cyan and teal colors per node
+    const isTeal = Math.random() > 0.65;
+    nodeColor[i*3]   = isTeal ? 0.0  : 0.0;
+    nodeColor[i*3+1] = isTeal ? 0.90 : 0.70;
+    nodeColor[i*3+2] = isTeal ? 0.80 : 1.0;
+  }
+
+  nodeGeo.setAttribute('position', new THREE.BufferAttribute(nodePos, 3));
+  nodeGeo.setAttribute('color', new THREE.BufferAttribute(nodeColor, 3));
+
+  const nodeMat = new THREE.PointsMaterial({
+    vertexColors: true,
+    size: 0.9,
+    transparent: true,
+    opacity: 0.45,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+
+  const nodes = new THREE.Points(nodeGeo, nodeMat);
+  scene.add(nodes);
+
+  // ── Layer 3: Connection lines ──
+  const positions = nodeGeo.attributes.position.array;
+  const lineVerts = [];
+  for (let i = 0; i < nodeCount; i++) {
+    for (let j = i + 1; j < nodeCount; j++) {
+      const ax = positions[i*3], ay = positions[i*3+1], az = positions[i*3+2];
+      const bx = positions[j*3], by = positions[j*3+1], bz = positions[j*3+2];
+      const d  = Math.sqrt((ax-bx)**2 + (ay-by)**2 + (az-bz)**2);
+      if (d < 16) lineVerts.push(ax, ay, az, bx, by, bz);
+    }
+  }
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lineVerts), 3));
+  const lineMat = new THREE.LineBasicMaterial({
+    color: 0x00b4ff, transparent: true, opacity: 0.045,
+    blending: THREE.AdditiveBlending,
+  });
+  const lines = new THREE.LineSegments(lineGeo, lineMat);
+  scene.add(lines);
+
+  // ── Layer 4: Inner glow sphere ──
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(10, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0x000d1a, transparent: true, opacity: 0.7 })
+  ));
+
+  // ── Layer 5: Anatomical rings (retinal cross-section) ──
+  const ringGroup = new THREE.Group();
+  for (let i = 0; i < 4; i++) {
+    const r   = 12 + i * 9;
+    const geo = new THREE.RingGeometry(r, r + 0.25, 80);
+    const mat = new THREE.MeshBasicMaterial({
+      color: i % 2 === 0 ? 0x00b4ff : 0x00e5cc,
+      transparent: true,
+      opacity: 0.04 - i * 0.006,
+      side: THREE.DoubleSide,
+    });
+    const ring = new THREE.Mesh(geo, mat);
+    ring.rotation.x = Math.PI / 3 + i * 0.35;
+    ring.rotation.z = i * 0.6;
+    ringGroup.add(ring);
+  }
+  scene.add(ringGroup);
+
+  // ── Layer 6: Pulse wave ring ──
+  let pulseR   = 10;
+  let pulseDir = 1;
+  const pulseGeo = new THREE.RingGeometry(pulseR, pulseR + 0.4, 64);
+  const pulseMat = new THREE.MeshBasicMaterial({
+    color: 0x00e5cc, transparent: true, opacity: 0.15,
+    side: THREE.DoubleSide,
+  });
+  const pulseMesh = new THREE.Mesh(pulseGeo, pulseMat);
+  pulseMesh.rotation.x = Math.PI / 2;
+  scene.add(pulseMesh);
+
+  // ── Animation ──
+  let t = 0;
+  let pulseScale = 1;
+  function animate() {
+    requestAnimationFrame(animate);
+    t += 0.003;
+
+    nodes.rotation.y = t * 0.14;
+    nodes.rotation.x = Math.sin(t * 0.09) * 0.09;
+    lines.rotation.y = t * 0.14;
+    lines.rotation.x = Math.sin(t * 0.09) * 0.09;
+    ringGroup.rotation.z = t * 0.05;
+    ringGroup.rotation.y = Math.sin(t * 0.12) * 0.3;
+
+    nodeMat.opacity = 0.32 + Math.sin(t * 1.8) * 0.12;
+
+    // Pulse expand/fade
+    pulseScale += 0.008;
+    pulseMesh.scale.setScalar(pulseScale);
+    pulseMat.opacity = Math.max(0, 0.18 - (pulseScale - 1) * 0.012);
+    if (pulseScale > 16) { pulseScale = 1; pulseMat.opacity = 0.18; }
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+})();
+
+// ═══════════════════════════════════════════════════════
+//  Three.js — Enhanced 3D Retina Eye (hero panel)
+// ═══════════════════════════════════════════════════════
+(function() {
+  const canvas   = document.getElementById('eye-canvas');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(340, 340);
+  renderer.setClearColor(0x000000, 0);
+  renderer.shadowMap.enabled = true;
+
+  const scene  = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+  camera.position.z = 5.5;
+
+  // ── Procedural retina texture ──
+  const texSize = 1024;
+  const tc      = document.createElement('canvas');
+  tc.width = tc.height = texSize;
+  const ctx = tc.getContext('2d');
+
+  // Deep dark base
+  ctx.fillStyle = '#07030f';
+  ctx.fillRect(0, 0, texSize, texSize);
+
+  // Radial bg glow (orange-brown retinal colour)
+  const bgGrad = ctx.createRadialGradient(texSize/2, texSize/2, 60, texSize/2, texSize/2, texSize/2);
+  bgGrad.addColorStop(0,   'rgba(140,45,10,0.55)');
+  bgGrad.addColorStop(0.45,'rgba(80,18,5,0.35)');
+  bgGrad.addColorStop(1,   'rgba(8,3,15,0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, texSize, texSize);
+
+  // Blood vessel tree using quadratic bezier curves
+  function drawVesselTree(sx, sy, angle, length, width, depth) {
+    if (depth === 0 || length < 8) return;
+    const ex = sx + Math.cos(angle) * length;
+    const ey = sy + Math.sin(angle) * length;
+    const cp1x = sx + Math.cos(angle - 0.3) * length * 0.5;
+    const cp1y = sy + Math.sin(angle - 0.3) * length * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.quadraticCurveTo(cp1x, cp1y, ex, ey);
+    ctx.strokeStyle = `rgba(${185 + depth * 8},${35 + depth * 5},${25},${0.45 + depth * 0.06})`;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    // Branch
+    const branchCount = depth > 3 ? 3 : 2;
+    for (let b = 0; b < branchCount; b++) {
+      const spread  = (b === 0 ? -1 : 1) * (0.35 + Math.random() * 0.25);
+      drawVesselTree(
+        ex, ey,
+        angle + spread + (Math.random() - 0.5) * 0.2,
+        length * (0.55 + Math.random() * 0.2),
+        width * 0.62,
+        depth - 1
+      );
+    }
+  }
+
+  const cx = texSize / 2, cy = texSize / 2;
+  // Optic disc position
+  const discX = cx - 130, discY = cy - 60;
+  // Draw ~12 major vessel arcs from optic disc
+  for (let i = 0; i < 12; i++) {
+    const angle = (i / 12) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+    drawVesselTree(discX, discY, angle, 120 + Math.random() * 80, 2.2 + Math.random() * 1.2, 5);
+  }
+
+  // Optic disc — bright warm glow
+  const discG = ctx.createRadialGradient(discX, discY, 0, discX, discY, 48);
+  discG.addColorStop(0,   'rgba(255,245,200,0.95)');
+  discG.addColorStop(0.35,'rgba(255,210,130,0.55)');
+  discG.addColorStop(0.7, 'rgba(220,140,50,0.2)');
+  discG.addColorStop(1,   'rgba(200,100,30,0)');
+  ctx.fillStyle = discG;
+  ctx.beginPath();
+  ctx.arc(discX, discY, 48, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Optic cup (dark centre of disc)
+  const cupG = ctx.createRadialGradient(discX, discY, 0, discX, discY, 20);
+  cupG.addColorStop(0,   'rgba(10,5,20,0.9)');
+  cupG.addColorStop(0.6, 'rgba(30,10,5,0.5)');
+  cupG.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = cupG;
+  ctx.beginPath();
+  ctx.arc(discX, discY, 20, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Macula — dark sensitive zone
+  const macG = ctx.createRadialGradient(cx, cy, 0, cx, cy, 55);
+  macG.addColorStop(0,   'rgba(18,3,3,0.95)');
+  macG.addColorStop(0.4, 'rgba(50,10,5,0.6)');
+  macG.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = macG;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 55, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Foveal reflex (tiny bright dot in macula centre)
+  const fovG = ctx.createRadialGradient(cx, cy, 0, cx, cy, 10);
+  fovG.addColorStop(0,   'rgba(255,230,180,0.7)');
+  fovG.addColorStop(0.5, 'rgba(200,150,80,0.25)');
+  fovG.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = fovG;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Edge vignette
+  const vigG = ctx.createRadialGradient(cx, cy, texSize*0.28, cx, cy, texSize*0.52);
+  vigG.addColorStop(0,   'rgba(0,0,0,0)');
+  vigG.addColorStop(1,   'rgba(0,0,0,0.88)');
+  ctx.fillStyle = vigG;
+  ctx.fillRect(0, 0, texSize, texSize);
+
+  const retinaTex = new THREE.CanvasTexture(tc);
+
+  // ── Sclera (outer eye white) ──
+  const scleraGeo = new THREE.SphereGeometry(2.05, 64, 64);
+  const scleraMat = new THREE.MeshStandardMaterial({
+    color: 0x0c0815,
+    roughness: 0.55,
+    metalness: 0.05,
+  });
+  scene.add(new THREE.Mesh(scleraGeo, scleraMat));
+
+  // ── Retina sphere (slightly inside sclera) ──
+  const eyeGeo = new THREE.SphereGeometry(1.95, 128, 64);
+  const eyeMat = new THREE.MeshStandardMaterial({
+    map: retinaTex,
+    roughness: 0.45,
+    metalness: 0.08,
+  });
+  const eyeMesh = new THREE.Mesh(eyeGeo, eyeMat);
+  scene.add(eyeMesh);
+
+  // ── Iris ring ──
+  const irisGeo  = new THREE.TorusGeometry(1.6, 0.18, 24, 128);
+  const irisMat  = new THREE.MeshStandardMaterial({
+    color: 0x003a55,
+    roughness: 0.3,
+    metalness: 0.4,
+    emissive: 0x001428,
+    emissiveIntensity: 0.5,
+  });
+  const irisMesh = new THREE.Mesh(irisGeo, irisMat);
+  irisMesh.position.z = 1.0;
+  scene.add(irisMesh);
+
+  // Iris glow ring
+  const irisGlowGeo = new THREE.RingGeometry(1.42, 1.78, 128);
+  const irisGlowMat = new THREE.MeshBasicMaterial({
+    color: 0x00b4ff, transparent: true, opacity: 0.2,
+    side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+  });
+  const irisGlowMesh = new THREE.Mesh(irisGlowGeo, irisGlowMat);
+  irisGlowMesh.position.z = 1.05;
+  scene.add(irisGlowMesh);
+
+  // ── Pupil (dark disc) ──
+  const pupilGeo = new THREE.CircleGeometry(0.55, 64);
+  const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  const pupilMesh = new THREE.Mesh(pupilGeo, pupilMat);
+  pupilMesh.position.z = 1.62;
+  scene.add(pupilMesh);
+
+  // Pupil inner glow (subtle dark red)
+  const pupilGlowGeo = new THREE.CircleGeometry(0.5, 64);
+  const pupilGlowMat = new THREE.MeshBasicMaterial({
+    color: 0x330a00, transparent: true, opacity: 0.6,
+    blending: THREE.AdditiveBlending,
+  });
+  const pupilGlowMesh = new THREE.Mesh(pupilGlowGeo, pupilGlowMat);
+  pupilGlowMesh.position.z = 1.63;
+  scene.add(pupilGlowMesh);
+
+  // ── Cornea (transparent dome on front) ──
+  const corneaGeo = new THREE.SphereGeometry(1.72, 64, 32, 0, Math.PI * 2, 0, Math.PI * 0.48);
+  const corneaMat = new THREE.MeshPhysicalMaterial({
+    color: 0x003355,
+    transparent: true,
+    opacity: 0.18,
+    roughness: 0.0,
+    metalness: 0.0,
+    transmission: 0.85,
+    thickness: 0.3,
+    side: THREE.FrontSide,
+  });
+  const corneaMesh = new THREE.Mesh(corneaGeo, corneaMat);
+  corneaMesh.rotation.x = -Math.PI / 2;
+  corneaMesh.position.z = 0.42;
+  scene.add(corneaMesh);
+
+  // Corneal specular highlight
+  const hlGeo = new THREE.CircleGeometry(0.35, 32);
+  const hlMat = new THREE.MeshBasicMaterial({
+    color: 0x88ccff, transparent: true, opacity: 0.55,
+    blending: THREE.AdditiveBlending,
+  });
+  const hlMesh = new THREE.Mesh(hlGeo, hlMat);
+  hlMesh.position.set(-0.5, 0.5, 1.68);
+  scene.add(hlMesh);
+
+  // ── Scan overlay plane ──
+  const scanGeo  = new THREE.PlaneGeometry(4.2, 0.07);
+  const scanMat  = new THREE.MeshBasicMaterial({
+    color: 0x00e5cc, transparent: true, opacity: 0,
+    side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+  });
+  const scanPlane = new THREE.Mesh(scanGeo, scanMat);
+  scanPlane.position.z = 2.1;
+  scene.add(scanPlane);
+
+  // ── Lights ──
+  scene.add(new THREE.AmbientLight(0xffffff, 0.28));
+
+  const keyLight = new THREE.DirectionalLight(0x88ccff, 2.0);
+  keyLight.position.set(4, 4, 6);
+  scene.add(keyLight);
+
+  const fillLight = new THREE.DirectionalLight(0x002244, 0.5);
+  fillLight.position.set(-3, -2, 3);
+  scene.add(fillLight);
+
+  // Warm retina fill light (from behind — simulates fundus illuminator)
+  const fundusLight = new THREE.PointLight(0xff5510, 1.2, 8);
+  fundusLight.position.set(0, 0, -4);
+  scene.add(fundusLight);
+
+  // Cyan rim light
+  const rimLight = new THREE.PointLight(0x00b4ff, 0.9, 10);
+  rimLight.position.set(-3, 2, -1);
+  scene.add(rimLight);
+
+  // Teal accent
+  const accentLight = new THREE.PointLight(0x00e5cc, 0.5, 8);
+  accentLight.position.set(3, -2, 4);
+  scene.add(accentLight);
+
+  // ── Mouse parallax ──
+  let targetRotX = 0, targetRotY = 0;
+  let currentRotX = 0, currentRotY = 0;
+
+  document.addEventListener('mousemove', (e) => {
+    const nx = (e.clientX / window.innerWidth)  - 0.5;
+    const ny = (e.clientY / window.innerHeight) - 0.5;
+    targetRotY = nx * 0.5;
+    targetRotX = ny * 0.25;
+  });
+
+  // ── Animation ──
+  let t = 0;
+  let scanning = false, scanY = -2.0;
+
+  window.setEyeScanning = function(val) {
+    scanning = val;
+    if (!val) { scanMat.opacity = 0; scanY = -2.0; }
+    document.getElementById('hud-status').textContent = val ? 'SCANNING' : 'IDLE';
+  };
+
+  function animate() {
+    requestAnimationFrame(animate);
+    t += 0.008;
+
+    // Smooth mouse-driven rotation
+    currentRotX += (targetRotX - currentRotX) * 0.06;
+    currentRotY += (targetRotY - currentRotY) * 0.06;
+
+    // Gentle auto rotation + mouse parallax
+    eyeMesh.rotation.y  = Math.sin(t * 0.28) * 0.22 + currentRotY;
+    eyeMesh.rotation.x  = Math.sin(t * 0.18) * 0.10 + currentRotX;
+    scleraGeo.attributes && (scene.children[0].rotation.y = eyeMesh.rotation.y);
+
+    // Iris glow pulse
+    irisGlowMat.opacity = 0.15 + Math.sin(t * 2.5) * 0.07;
+
+    // Pupil slight dilation during scanning
+    const pupilScale = scanning ? 0.9 + Math.sin(t * 4) * 0.08 : 1.0;
+    pupilMesh.scale.setScalar(pupilScale);
+    pupilGlowMesh.scale.setScalar(pupilScale);
+
+    // Scan plane
+    if (scanning) {
+      scanY += 0.045;
+      if (scanY > 2.0) scanY = -2.0;
+      scanPlane.position.y = scanY;
+      scanMat.opacity = 0.55 + Math.sin(t * 10) * 0.15;
+    }
+
+    // Subtle corneal shimmer
+    corneaMat.opacity = 0.16 + Math.sin(t * 1.5) * 0.03;
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+
+// ═══════════════════════════════════════════════════════
+//  App Logic
+// ═══════════════════════════════════════════════════════
+
+// Live clock
+setInterval(() => {
+  document.getElementById('sys-time').textContent =
+    new Date().toLocaleTimeString('en-US', { hour12: false });
+}, 1000);
+
+// Check model status
+async function checkStatus() {
+  try {
+    const res  = await fetch('/api/status');
+    const data = await res.json();
+    const dot    = document.getElementById('model-status-dot');
+    const txt    = document.getElementById('model-status-text');
+    const banner = document.getElementById('no-model-banner');
+
+    if (data.model_loaded) {
+      dot.className     = 'status-dot online';
+      txt.textContent   = 'MODEL ONLINE';
+      banner.style.display = 'none';
+      if (data.model_info?.test_auc) {
+        document.getElementById('metric-auc').textContent =
+          data.model_info.test_auc.toFixed(3);
+      }
+    } else {
+      dot.className   = 'status-dot offline';
+      txt.textContent = 'MODEL OFFLINE';
+      banner.style.display = 'block';
+    }
+  } catch {
+    document.getElementById('model-status-dot').className   = 'status-dot offline';
+    document.getElementById('model-status-text').textContent = 'SERVER OFFLINE';
+  }
+}
+checkStatus();
+
+// Upload handling
+const uploadZone = document.getElementById('upload-zone');
+const fileInput  = document.getElementById('file-input');
+let selectedFile = null;
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) setFile(file);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) setFile(e.target.files[0]);
+});
+
+function setFile(file) {
+  selectedFile = file;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = document.getElementById('preview-img');
+    img.src   = ev.target.result;
+    img.style.display  = 'block';
+    document.getElementById('preview-badge').style.display = 'flex';
+    uploadZone.classList.add('has-image');
+    document.getElementById('hero-scan').classList.add('scanning');
+  };
+  reader.readAsDataURL(file);
+}
+
+// Processing steps
+const procSteps = [
+  'LOADING IMAGE DATA...',
+  'APPLYING CLAHE PREPROCESSING...',
+  'RUNNING EFFICIENTNETB3 ENCODER...',
+  'COMPUTING CBAM ATTENTION GATES...',
+  'TEST-TIME AUGMENTATION (5 PASSES)...',
+  'GENERATING GRAD-CAM HEATMAP...',
+  'COMPUTING DISEASE PROBABILITIES...',
+  'FINALIZING CLINICAL ASSESSMENT...'
+];
+
+async function runScreening() {
+  if (!selectedFile) {
+    alert('Please upload a fundus image first.');
+    return;
+  }
+
+  const btn     = document.getElementById('run-btn');
+  btn.disabled  = true;
+  btn.classList.add('running');
+  btn.textContent = '⏳ ANALYZING...';
+
+  const overlay = document.getElementById('proc-overlay');
+  overlay.classList.add('active');
+  window.setEyeScanning && window.setEyeScanning(true);
+
+  let stepIdx = 0;
+  const stepEl    = document.getElementById('proc-step-text');
+  const stepTimer = setInterval(() => {
+    stepEl.textContent = procSteps[stepIdx % procSteps.length];
+    stepIdx++;
+  }, 300);
+
+  try {
+    const formData = new FormData();
+    formData.append('image',      selectedFile);
+    formData.append('patient_id', document.getElementById('patient-id').value);
+    formData.append('clinician',  document.getElementById('clinician').value);
+    formData.append('eye',        document.getElementById('eye-select').value);
+
+    const res  = await fetch('/api/predict', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    renderResults(data);
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    clearInterval(stepTimer);
+    overlay.classList.remove('active');
+    window.setEyeScanning && window.setEyeScanning(false);
+    btn.disabled = false;
+    btn.classList.remove('running');
+    btn.textContent = '▶ RUN SCREENING';
+    document.getElementById('hero-scan').classList.remove('scanning');
+  }
+}
+
+// ── Session log (used by exportReport) ──
+let screeningLog = [];
+
+function renderResults(data) {
+  const pred    = data.prediction;
+  const isRisk  = pred.label === 'At Risk';
+  const riskColor = isRisk ? 'var(--red)' : 'var(--green)';
+  const barGrad   = isRisk
+    ? 'linear-gradient(90deg, #ff3b5c, #cc0022)'
+    : 'linear-gradient(90deg, #00e896, #00a060)';
+
+  // Verdict box
+  const vBox = document.getElementById('verdict-box');
+  vBox.style.border     = `1px solid ${isRisk ? 'rgba(255,59,92,0.4)' : 'rgba(0,232,150,0.4)'}`;
+  vBox.style.background = isRisk
+    ? 'linear-gradient(135deg, rgba(255,59,92,0.06), rgba(180,0,30,0.04))'
+    : 'linear-gradient(135deg, rgba(0,232,150,0.06), rgba(0,140,80,0.04))';
+
+  document.getElementById('verdict-label').textContent = pred.label.toUpperCase();
+  document.getElementById('verdict-label').style.color = riskColor;
+  document.getElementById('verdict-conf').textContent  =
+    `CONFIDENCE: ${(pred.confidence * 100).toFixed(1)}%   |   PROBABILITY: ${pred.probability.toFixed(4)}`;
+
+  const fill = document.getElementById('prob-fill');
+  fill.style.width      = (pred.probability * 100) + '%';
+  fill.style.background = barGrad;
+
+  document.getElementById('clinical-title').textContent = pred?.clinical?.title || 'Clinical Analysis';
+  document.getElementById('clinical-title').style.color = pred?.clinical?.color || '#00d4ff';
+  document.getElementById('clinical-text').textContent  = pred.clinical?.note;
+
+  // Images
+  document.getElementById('img-original').src = 'data:image/png;base64,' + data.images.original;
+
+  const heatmapImg = document.getElementById('img-heatmap');
+  const overlayImg = document.getElementById('img-overlay');
+
+  if (data.images.heatmap && data.images.heatmap.length > 100) {
+    heatmapImg.src = 'data:image/png;base64,' + data.images.heatmap;
+  } else if (data.images.overlay) {
+    heatmapImg.src = 'data:image/png;base64,' + data.images.overlay;
+  }
+
+  if (data.images.overlay) {
+    overlayImg.src = 'data:image/png;base64,' + data.images.overlay;
+  }
+
+  // Disease bars
+  const dList = document.getElementById('disease-list');
+  dList.innerHTML = '';
+  if (data.top_diseases && data.top_diseases.length > 0) {
+    data.top_diseases.forEach(d => {
+      const pct = (d.probability * 100).toFixed(1);
+      dList.innerHTML += `
+        <div class="disease-item">
+          <div class="disease-header">
+            <span class="disease-name">${d.name}</span>
+            <span class="disease-prob">${pct}%</span>
+          </div>
+          <div class="disease-bar">
+            <div class="disease-bar-fill" style="width:0%" data-target="${pct}%"></div>
+          </div>
+        </div>`;
+    });
+    setTimeout(() => {
+      document.querySelectorAll('.disease-bar-fill').forEach(el => {
+        el.style.width = el.dataset.target;
+      });
+    }, 100);
+  } else {
+    dList.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim)">No individual disease indicators above threshold.</div>';
+  }
+
+  // Meta badges
+  const badges = document.getElementById('meta-badges');
+  const m  = data.meta;
+  const ts = new Date().toLocaleString('en-US', { hour12: false });
+  badges.innerHTML = `
+    <div class="badge">👤 ${document.getElementById('patient-id').value}</div>
+    <div class="badge">🏥 ${document.getElementById('clinician').value}</div>
+    <div class="badge">👁 ${document.getElementById('eye-select').value}</div>
+    <div class="badge">🤖 ${m.model}</div>
+    <div class="badge">⚡ ${m.inference_ms}ms</div>
+    <div class="badge">🔄 TTA×${m.tta_passes}</div>
+    <div class="badge">📅 ${ts}</div>
+  `;
+
+  // ── FIX: Push record to screeningLog so export works ──
+  screeningLog.push({
+    timestamp:    ts,
+    patient_id:   document.getElementById('patient-id').value,
+    clinician:    document.getElementById('clinician').value,
+    eye:          document.getElementById('eye-select').value,
+    device:       document.getElementById('device-select').value,
+    label:        pred.label,
+    confidence:   (pred.confidence * 100).toFixed(1) + '%',
+    probability:  pred.probability.toFixed(4),
+    model:        m.model,
+    inference_ms: m.inference_ms,
+    tta_passes:   m.tta_passes,
+    top_diseases: data.top_diseases
+      ? data.top_diseases.map(d => `${d.name}:${(d.probability*100).toFixed(1)}%`).join(' | ')
+      : ''
+  });
+
+  // Update footer session count
+  document.getElementById('session-count').textContent =
+    `SESSION SCREENINGS: ${screeningLog.length}`;
+
+  const rc = document.getElementById('results-container');
+  rc.style.display = 'flex';
+  rc.classList.add('fade-in');
+
+  setTimeout(() => rc.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
+}
+
+function resetAll() {
+  selectedFile = null;
+  document.getElementById('preview-img').style.display   = 'none';
+  document.getElementById('preview-badge').style.display = 'none';
+  document.getElementById('upload-zone').classList.remove('has-image');
+  document.getElementById('results-container').style.display = 'none';
+  document.getElementById('hero-scan').classList.remove('scanning');
+  document.getElementById('file-input').value = '';
+  document.getElementById('control-panel').scrollTop = 0;
+}
+
+// ── Export — now works because screeningLog is populated ──
+function exportReport() {
+  if (!screeningLog.length) {
+    alert('No screenings to export yet. Run at least one screening first.');
+    return;
+  }
+
+  const headers = Object.keys(screeningLog[0]).join(',');
+  const rows    = screeningLog.map(r =>
+    Object.values(r).map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+  );
+  const csv  = [headers, ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `oculuma_screening_report_${Date.now()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+
+<script>
+window.addEventListener('error', function(e) {
+  console.error('Runtime Error:', e.message, e.filename, e.lineno);
+});
+</script>
+
+</body>
+</html>

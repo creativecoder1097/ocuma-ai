@@ -1,0 +1,20 @@
+{
+  "model_name": "OcuLume AI",
+  "base_model": "EfficientNetB3",
+  "img_size": 224,
+  "top_diseases": [
+    "Diabetic Retinopathy",
+    "Media Haze",
+    "Optic Disc Cupping",
+    "Tessellation",
+    "Drusen",
+    "Myopia",
+    "Age-related Macular Degeneration",
+    "Branch Retinal Vein Occlusion",
+    "Optic Disc Pallor",
+    "Optic Disc Edema"
+  ],
+  "test_auc": 0.8576939413603917,
+  "test_f1": 0.8820960698689956,
+  "timestamp": "2026-05-12T15:48:36.604170"
+}

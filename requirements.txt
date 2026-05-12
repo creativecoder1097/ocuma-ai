@@ -1,0 +1,10 @@
+flask==3.0.2
+tensorflow==2.15.0
+keras==2.15.0
+numpy==1.26.4
+opencv-python-headless==4.9.0.80
+pillow==10.2.0
+h5py==3.10.0
+scikit-learn==1.4.1.post1
+pandas==2.2.1
+gunicorn==21.2.0
